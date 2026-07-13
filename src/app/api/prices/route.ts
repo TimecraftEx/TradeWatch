@@ -1,13 +1,10 @@
 import { NextResponse } from "next/server";
-import { exec } from "child_process";
-import { promisify } from "util";
-import { readFile } from "fs/promises";
-import { join } from "path";
-
-const execAsync = promisify(exec);
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
+
+const FIRECRAWL_API_KEY = process.env.FIRECRAWL_API_KEY;
+const FIRECRAWL_URL = "https://api.firecrawl.dev/v1/scrape";
 
 interface PriceResult {
   price: number;
@@ -16,22 +13,29 @@ interface PriceResult {
 }
 
 async function scrapeTicker(symbol: string): Promise<PriceResult | null> {
-  const outFile = join(process.cwd(), `.firecrawl`, `price-${symbol}.md`);
-
   try {
-    await execAsync(
-      `firecrawl scrape "https://stockanalysis.com/stocks/${symbol.toLowerCase()}/" -o "${outFile}"`,
-      { timeout: 15000 }
-    );
+    const res = await fetch(FIRECRAWL_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${FIRECRAWL_API_KEY}`,
+      },
+      body: JSON.stringify({
+        url: `https://stockanalysis.com/stocks/${symbol.toLowerCase()}/`,
+        formats: ["markdown"],
+      }),
+    });
 
-    const content = await readFile(outFile, "utf-8");
+    if (!res.ok) return null;
 
-    // Parse price from pattern like:
-    // "557.89\n\n+11.17 (2.04%)"
-    // or "557.89\n\n-11.17 (-2.04%)"
-    const lines = content.split("\n").filter((l) => l.trim());
+    const data = await res.json();
+    const content: string = data?.data?.markdown || "";
 
-    // Find the line with "Real-Time Price" then get the next non-empty lines
+    if (!content) return null;
+
+    const lines = content.split("\n").filter((l: string) => l.trim());
+
+    // Find "Real-Time Price" then parse price and change from nearby lines
     let priceIdx = -1;
     for (let i = 0; i < lines.length; i++) {
       if (lines[i].includes("Real-Time Price")) {
@@ -42,12 +46,11 @@ async function scrapeTicker(symbol: string): Promise<PriceResult | null> {
 
     if (priceIdx === -1) return null;
 
-    // Price is typically 2-3 lines after "Real-Time Price"
     let price = 0;
     let change = 0;
     let changePercent = 0;
 
-    for (let i = priceIdx + 1; i < Math.min(priceIdx + 6, lines.length); i++) {
+    for (let i = priceIdx + 1; i < Math.min(priceIdx + 8, lines.length); i++) {
       const line = lines[i].trim();
 
       // Match standalone price like "557.89" or "1,842.75"
@@ -84,10 +87,14 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "tickers param required" }, { status: 400 });
   }
 
+  if (!FIRECRAWL_API_KEY) {
+    return NextResponse.json({ error: "FIRECRAWL_API_KEY not configured" }, { status: 500 });
+  }
+
   const symbols = tickers.split(",").map((t) => t.trim()).filter(Boolean);
   const results: Record<string, PriceResult> = {};
 
-  // Scrape in parallel (firecrawl supports concurrent requests)
+  // Scrape in parallel
   await Promise.all(
     symbols.map(async (symbol) => {
       const result = await scrapeTicker(symbol);
