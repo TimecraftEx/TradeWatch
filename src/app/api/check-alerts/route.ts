@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { Resend } from "resend";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -10,6 +11,8 @@ const supabase = createClient(
 );
 
 const FIRECRAWL_API_KEY = process.env.FIRECRAWL_API_KEY;
+const RESEND_API_KEY = process.env.RESEND_API_KEY;
+const ALERT_EMAIL = process.env.ALERT_EMAIL || "timecraftexchange@gmail.com";
 
 interface PriceResult {
   price: number;
@@ -51,7 +54,68 @@ async function fetchPrice(symbol: string): Promise<PriceResult | null> {
   } catch { return null; }
 }
 
+async function sendAlertEmail(
+  triggered: Array<{ ticker: string; current_price: number; trade_price: number; pct_diff: number }>,
+  threshold: number
+) {
+  if (!RESEND_API_KEY) {
+    console.log("RESEND_API_KEY not set, skipping email");
+    return;
+  }
+
+  const resend = new Resend(RESEND_API_KEY);
+
+  const rows = triggered
+    .map((a) => {
+      const arrow = a.pct_diff < 0 ? "🔴" : "🟢";
+      return `${arrow} <strong>${a.ticker}</strong> — Now $${a.current_price.toFixed(2)} (${a.pct_diff.toFixed(1)}% from $${a.trade_price.toFixed(2)})`;
+    })
+    .join("<br>");
+
+  const now = new Date().toLocaleString("en-US", {
+    timeZone: "America/New_York",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+
+  await resend.emails.send({
+    from: "TradeWatch <alerts@resend.dev>",
+    to: ALERT_EMAIL,
+    subject: `TradeWatch Alert: ${triggered.length} stock${triggered.length > 1 ? "s" : ""} dropped >${threshold}%`,
+    html: `
+      <div style="font-family:system-ui;max-width:500px;margin:0 auto;background:#000;color:#fff;padding:24px;border-radius:12px;">
+        <h2 style="color:#00c805;margin:0 0 4px;">TradeWatch Alert</h2>
+        <p style="color:#666;margin:0 0 20px;font-size:13px;">${now} ET · Threshold: ${threshold}%</p>
+        <div style="background:#111;border-radius:8px;padding:16px;font-size:14px;line-height:2;">
+          ${rows}
+        </div>
+        <p style="color:#444;font-size:11px;margin-top:16px;">
+          <a href="https://tradewatch-indol.vercel.app" style="color:#58a6ff;">Open TradeWatch</a>
+        </p>
+      </div>
+    `,
+  });
+}
+
+// Support both GET (for Vercel Cron) and POST (for manual trigger)
+export async function GET(request: Request) {
+  // Verify cron secret if set
+  const authHeader = request.headers.get("authorization");
+  const cronSecret = process.env.CRON_SECRET;
+  if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  return runAlertCheck();
+}
+
 export async function POST() {
+  return runAlertCheck();
+}
+
+async function runAlertCheck() {
   // 1. Get alert settings
   const { data: settings } = await supabase
     .from("alert_settings")
@@ -107,7 +171,14 @@ export async function POST() {
     })
   );
 
-  // 5. Check alerts
+  // 5. Check alerts — skip if already alerted today for same ticker
+  const today = new Date().toISOString().split("T")[0];
+  const { data: todayAlerts } = await supabase
+    .from("price_alerts")
+    .select("ticker")
+    .gte("triggered_at", `${today}T00:00:00Z`);
+  const alreadyAlerted = new Set((todayAlerts || []).map((a: Record<string, unknown>) => a.ticker));
+
   const triggered: Array<{
     ticker: string;
     alert_type: string;
@@ -118,13 +189,14 @@ export async function POST() {
   }> = [];
 
   for (const ticker of tickers) {
+    if (alreadyAlerted.has(ticker)) continue;
+
     const currentPrice = prices[ticker]?.price;
     if (!currentPrice) continue;
 
     const lt = lastTrades[ticker];
     if (!lt) continue;
 
-    // Check against last buy
     if ((direction === "below_buy" || direction === "both") && lt.lastBuy) {
       const thresholdPrice = lt.lastBuy * (1 - threshold / 100);
       if (currentPrice <= thresholdPrice) {
@@ -139,10 +211,9 @@ export async function POST() {
       }
     }
 
-    // Check against last sell
     if ((direction === "below_sell" || direction === "both") && lt.lastSell) {
       const thresholdPrice = lt.lastSell * (1 - threshold / 100);
-      if (currentPrice <= thresholdPrice) {
+      if (currentPrice <= thresholdPrice && !triggered.find((t) => t.ticker === ticker)) {
         triggered.push({
           ticker,
           alert_type: "pct_drop",
@@ -155,8 +226,10 @@ export async function POST() {
     }
   }
 
-  // 6. Insert triggered alerts
+  // 6. Insert triggered alerts + send email
   if (triggered.length > 0) {
+    const notifiedVia = RESEND_API_KEY ? ["app", "email"] : ["app"];
+
     await supabase.from("price_alerts").insert(
       triggered.map((a) => ({
         ticker: a.ticker,
@@ -164,14 +237,22 @@ export async function POST() {
         current_price: a.current_price,
         trade_price: a.trade_price,
         threshold_price: a.threshold_price,
-        notified_via: ["app"],
+        notified_via: notifiedVia,
       }))
     );
+
+    // Send email notification
+    try {
+      await sendAlertEmail(triggered, threshold);
+    } catch (err) {
+      console.error("Email send failed:", err);
+    }
   }
 
   return NextResponse.json({
     message: `Checked ${tickers.length} tickers, ${triggered.length} alerts triggered`,
     threshold: `${threshold}%`,
+    emailed: triggered.length > 0 && !!RESEND_API_KEY,
     triggered,
   });
 }
