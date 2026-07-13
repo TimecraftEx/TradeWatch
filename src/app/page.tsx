@@ -105,17 +105,17 @@ function StockRow({ p, prices, lastTrades, isClosed }: {
 
   return (
     <div
-      className="rounded-xl p-4 mb-2"
+      className="rounded-xl p-3 sm:p-4 mb-2"
       style={{ background: cardBg, border: `1px solid ${borderColor}` }}
     >
-      {/* Top row: ticker + badges + value */}
-      <div className="flex items-start justify-between mb-2">
-        <div>
-          <div className="flex items-center gap-2 mb-1">
-            <span className="font-bold text-lg" style={{ color: textColor }}>{p.ticker}</span>
+      {/* Top row: ticker + value */}
+      <div className="flex items-start justify-between mb-1.5">
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-1.5 sm:gap-2 mb-1 flex-wrap">
+            <span className="font-bold text-base sm:text-lg" style={{ color: textColor }}>{p.ticker}</span>
             {priceData?.analystRating && (
               <span
-                className="text-[10px] font-bold uppercase px-2 py-1 rounded-full"
+                className="text-[8px] sm:text-[10px] font-bold uppercase px-1.5 sm:px-2 py-0.5 sm:py-1 rounded-full"
                 style={{
                   color: RATING_COLORS[priceData.analystRating] || "#f59e0b",
                   background: `${RATING_COLORS[priceData.analystRating] || "#f59e0b"}15`,
@@ -130,14 +130,14 @@ function StockRow({ p, prices, lastTrades, isClosed }: {
                 href={priceData.newsUrl}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="text-[10px] font-bold uppercase px-2 py-1 rounded-full"
+                className="text-[8px] sm:text-[10px] font-bold uppercase px-1.5 sm:px-2 py-0.5 sm:py-1 rounded-full"
                 style={{ color: "#58a6ff", background: "#58a6ff15", border: "1px solid #58a6ff40" }}
               >
                 News
               </a>
             )}
           </div>
-          <div className="text-xs" style={{ color: subColor }}>
+          <div className="text-[11px] sm:text-xs" style={{ color: subColor }}>
             {isClosed ? `Closed · Avg $${avgCost.toFixed(2)}` : `${shares.toFixed(2)} shares`}
             {livePrice && <span> · <strong style={{ color: textColor }}>${livePrice.toFixed(2)}</strong></span>}
             {priceData?.priceTarget && (
@@ -145,21 +145,21 @@ function StockRow({ p, prices, lastTrades, isClosed }: {
             )}
           </div>
         </div>
-        <div className="text-right">
+        <div className="text-right shrink-0 ml-2">
           {!isClosed && (
-            <div className="text-base font-bold" style={{ color: textColor }}>
+            <div className="text-sm sm:text-base font-bold" style={{ color: textColor }}>
               {fmtFull(marketValue)}
             </div>
           )}
-          <div className="flex items-center gap-2 justify-end mt-1">
+          <div className="flex items-center gap-1.5 sm:gap-2 justify-end mt-0.5">
             {dayPnL !== null && (
-              <span className="text-xs font-semibold" style={{ color: dayPnL >= 0 ? greenColor : redColor }}>
+              <span className="text-[10px] sm:text-xs font-semibold" style={{ color: dayPnL >= 0 ? greenColor : redColor }}>
                 {dayPnL >= 0 ? "+" : ""}{fmtFull(dayPnL)}
               </span>
             )}
             {!isClosed && (
               <span
-                className="text-xs font-bold px-2 py-1 rounded-full"
+                className="text-[10px] sm:text-xs font-bold px-1.5 sm:px-2 py-0.5 sm:py-1 rounded-full"
                 style={{
                   color: isGain ? greenColor : redColor,
                   background: isGain ? "rgba(0,200,5,0.12)" : "rgba(255,80,0,0.12)",
@@ -171,25 +171,25 @@ function StockRow({ p, prices, lastTrades, isClosed }: {
             )}
             {isClosed && pctFromSell !== null && (
               <span
-                className="text-xs font-bold px-2 py-1 rounded-full"
+                className="text-[10px] sm:text-xs font-bold px-1.5 sm:px-2 py-0.5 sm:py-1 rounded-full"
                 style={{
                   color: pctFromSell >= 0 ? greenColor : redColor,
                   background: pctFromSell >= 0 ? "rgba(0,200,5,0.12)" : "rgba(255,80,0,0.12)",
                 }}
               >
-                {pctFromSell >= 0 ? "+" : ""}{pctFromSell.toFixed(1)}% since sell
+                {pctFromSell >= 0 ? "+" : ""}{pctFromSell.toFixed(1)}%
               </span>
             )}
           </div>
         </div>
       </div>
 
-      {/* Buy/Sell price buttons — bold pill style */}
+      {/* Buy/Sell price buttons — bold pill style, wrap on mobile */}
       {lt && (
-        <div className="flex items-center gap-2 mt-2">
+        <div className="flex items-center gap-1.5 sm:gap-2 mt-2 flex-wrap">
           {lastBuyPrice !== null && (
             <div
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold"
+              className="flex items-center gap-1 sm:gap-1.5 px-2 sm:px-3 py-1 sm:py-1.5 rounded-full text-[10px] sm:text-xs font-bold"
               style={{ background: "rgba(0,200,5,0.12)", border: "1px solid rgba(0,200,5,0.3)" }}
             >
               <span style={{ color: greenColor }}>BUY</span>
@@ -199,7 +199,7 @@ function StockRow({ p, prices, lastTrades, isClosed }: {
           )}
           {lastSellPrice !== null && (
             <div
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold"
+              className="flex items-center gap-1 sm:gap-1.5 px-2 sm:px-3 py-1 sm:py-1.5 rounded-full text-[10px] sm:text-xs font-bold"
               style={{ background: "rgba(255,80,0,0.12)", border: "1px solid rgba(255,80,0,0.3)" }}
             >
               <span style={{ color: redColor }}>SELL</span>
@@ -209,13 +209,13 @@ function StockRow({ p, prices, lastTrades, isClosed }: {
           )}
           {!isClosed && pctFromBuy !== null && (
             <span
-              className="text-[11px] font-bold px-2 py-1 rounded-full"
+              className="text-[9px] sm:text-[11px] font-bold px-1.5 sm:px-2 py-0.5 sm:py-1 rounded-full"
               style={{
                 color: pctFromBuy >= 0 ? greenColor : redColor,
                 background: pctFromBuy >= 0 ? "rgba(0,200,5,0.08)" : "rgba(255,80,0,0.08)",
               }}
             >
-              {pctFromBuy >= 0 ? "+" : ""}{pctFromBuy.toFixed(1)}% from buy
+              {pctFromBuy >= 0 ? "+" : ""}{pctFromBuy.toFixed(1)}%
             </span>
           )}
         </div>
@@ -362,10 +362,10 @@ export default function DashboardPage() {
   const chartData = buildPnLChart(trades);
 
   return (
-    <div className="max-w-5xl mx-auto px-4 py-6">
+    <div className="max-w-5xl mx-auto px-3 sm:px-4 py-4 sm:py-6">
       {/* Big portfolio number */}
-      <div className="text-center py-4">
-        <div className="text-4xl font-bold tracking-tight" style={{ color: "#fff" }}>
+      <div className="text-center py-3 sm:py-4">
+        <div className="text-2xl sm:text-4xl font-bold tracking-tight" style={{ color: "#fff" }}>
           {hasPrices ? fmtFull(portfolioValue) : pricesLoading ? "Loading..." : fmtFull(totalCostBasis)}
         </div>
         {hasPrices ? (
@@ -406,30 +406,30 @@ export default function DashboardPage() {
       )}
 
       {/* Stat cards */}
-      <div className="flex gap-3 mb-6">
+      <div className="flex gap-2 sm:gap-3 mb-4 sm:mb-6">
         {[
           { label: "Portfolio", value: hasPrices ? fmtFull(portfolioValue) : "—", color: "#fff" },
-          { label: "Day Change", value: hasPrices ? (dayPositive ? "+" : "") + fmtFull(totalDayChange) : "—", color: hasPrices ? dayColor : "#666" },
+          { label: "Day", value: hasPrices ? (dayPositive ? "+" : "") + fmt(totalDayChange) : "—", color: hasPrices ? dayColor : "#666" },
           { label: "Unrealized", value: hasPrices ? (pnlPositive ? "+" : "") + fmt(totalUnrealizedPnL) : "—", color: hasPrices ? pnlColor : "#666" },
         ].map((s) => (
-          <div key={s.label} className="flex-1 rounded-lg p-4 text-center" style={{ background: "#111" }}>
-            <div className="text-[10px] uppercase tracking-widest" style={{ color: "#666" }}>{s.label}</div>
-            <div className="text-lg font-semibold mt-1" style={{ color: s.color }}>{s.value}</div>
+          <div key={s.label} className="flex-1 rounded-lg p-2.5 sm:p-4 text-center" style={{ background: "#111" }}>
+            <div className="text-[8px] sm:text-[10px] uppercase tracking-widest" style={{ color: "#666" }}>{s.label}</div>
+            <div className="text-sm sm:text-lg font-semibold mt-0.5 sm:mt-1" style={{ color: s.color }}>{s.value}</div>
           </div>
         ))}
       </div>
 
       {/* Tabs: Holdings | Previously Owned | Recent Trades */}
-      <div className="flex items-center gap-1 mb-4 p-1 rounded-lg" style={{ background: "#111" }}>
+      <div className="flex items-center gap-1 mb-3 sm:mb-4 p-1 rounded-lg overflow-x-auto" style={{ background: "#111" }}>
         {([
           { key: "holdings" as TabView, label: `Holdings (${held.length})` },
-          { key: "previously" as TabView, label: `Previously Owned (${closed.length})` },
-          { key: "recent" as TabView, label: "Recent Trades" },
+          { key: "previously" as TabView, label: `Past (${closed.length})` },
+          { key: "recent" as TabView, label: "Recent" },
         ]).map((tab) => (
           <button
             key={tab.key}
             onClick={() => setActiveTab(tab.key)}
-            className="flex-1 py-2 text-xs font-medium rounded-md transition-colors"
+            className="flex-1 py-1.5 sm:py-2 text-[10px] sm:text-xs font-medium rounded-md transition-colors whitespace-nowrap"
             style={{
               background: activeTab === tab.key ? "#000" : "transparent",
               color: activeTab === tab.key ? "#fff" : "#666",
@@ -443,16 +443,16 @@ export default function DashboardPage() {
 
       {/* Sort controls (for holdings and previously owned) */}
       {activeTab !== "recent" && (
-        <div className="flex items-center gap-2 mb-4 p-1 rounded-lg" style={{ background: "#0a0a0a" }}>
+        <div className="flex items-center gap-1 sm:gap-2 mb-3 sm:mb-4 p-1 rounded-lg" style={{ background: "#0a0a0a" }}>
           {([
-            { key: "value" as SortMode, label: "By Value", icon: "$ " },
-            { key: "gainer" as SortMode, label: "Top Gainers", icon: "▲ " },
-            { key: "loser" as SortMode, label: "Top Losers", icon: "▼ " },
+            { key: "value" as SortMode, label: "Value", mobileLabel: "$", icon: "$ " },
+            { key: "gainer" as SortMode, label: "Gainers", mobileLabel: "▲", icon: "▲ " },
+            { key: "loser" as SortMode, label: "Losers", mobileLabel: "▼", icon: "▼ " },
           ]).map((s) => (
             <button
               key={s.key}
               onClick={() => setSortMode(s.key)}
-              className="flex-1 text-xs font-semibold py-2 rounded-md transition-all"
+              className="flex-1 text-[10px] sm:text-xs font-semibold py-1.5 sm:py-2 rounded-md transition-all"
               style={{
                 background: sortMode === s.key
                   ? s.key === "gainer" ? "rgba(0,200,5,0.15)" : s.key === "loser" ? "rgba(255,80,0,0.15)" : "#1a1a1a"
@@ -465,7 +465,8 @@ export default function DashboardPage() {
                   : "1px solid transparent",
               }}
             >
-              {s.icon}{s.label}
+              <span className="hidden sm:inline">{s.icon}{s.label}</span>
+              <span className="sm:hidden">{s.icon}{s.label}</span>
             </button>
           ))}
         </div>

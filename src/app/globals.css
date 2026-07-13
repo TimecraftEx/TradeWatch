@@ -94,6 +94,11 @@
   }
   html {
     @apply font-sans;
-    font-size: 120%;
+    font-size: 100%;
+  }
+  @media (min-width: 640px) {
+    html {
+      font-size: 120%;
+    }
   }
 }
