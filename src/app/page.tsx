@@ -12,6 +12,8 @@ import {
   ResponsiveContainer,
 } from "recharts";
 
+type PriceData = Record<string, { price: number; change: number; changePercent: number }>;
+
 function buildPnLChart(trades: Trade[]) {
   const sorted = [...trades].sort(
     (a, b) => new Date(a.executed_at).getTime() - new Date(b.executed_at).getTime()
@@ -53,7 +55,9 @@ function fmtFull(n: number) {
 export default function DashboardPage() {
   const [trades, setTrades] = useState<Trade[]>([]);
   const [positions, setPositions] = useState<Position[]>([]);
+  const [prices, setPrices] = useState<PriceData>({});
   const [loading, setLoading] = useState(true);
+  const [pricesLoading, setPricesLoading] = useState(true);
 
   useEffect(() => {
     async function load() {
@@ -62,38 +66,82 @@ export default function DashboardPage() {
         supabase.from("positions").select("*"),
       ]);
       setTrades((t as Trade[]) || []);
-      setPositions((p as Position[]) || []);
+      const pos = (p as Position[]) || [];
+      setPositions(pos);
       setLoading(false);
+
+      // Fetch live prices for held positions
+      const heldTickers = pos
+        .filter((p) => p.status === "held" && Number(p.net_shares) > 0.01)
+        .map((p) => p.ticker);
+
+      if (heldTickers.length > 0) {
+        try {
+          const res = await fetch(`/api/prices?tickers=${heldTickers.join(",")}`);
+          const data = await res.json();
+          setPrices(data);
+        } catch {
+          // Prices unavailable
+        }
+      }
+      setPricesLoading(false);
     }
     load();
   }, []);
 
   if (loading) {
-    return <div className="flex items-center justify-center h-96" style={{ color: '#666' }}>Loading...</div>;
+    return <div className="flex items-center justify-center h-96" style={{ color: "#666" }}>Loading...</div>;
   }
+
+  const held = positions
+    .filter((p) => p.status === "held" && Number(p.net_shares) > 0.01)
+    .sort((a, b) => {
+      const aPrice = prices[a.ticker]?.price || Number(a.avg_cost_basis);
+      const bPrice = prices[b.ticker]?.price || Number(b.avg_cost_basis);
+      return (Number(b.net_shares) * bPrice) - (Number(a.net_shares) * aPrice);
+    });
+
+  // Calculate portfolio value using live prices
+  const portfolioValue = held.reduce((sum, p) => {
+    const livePrice = prices[p.ticker]?.price;
+    const price = livePrice || Number(p.avg_cost_basis);
+    return sum + Number(p.net_shares) * price;
+  }, 0);
+
+  const totalCostBasis = held.reduce((sum, p) => sum + Number(p.net_shares) * Number(p.avg_cost_basis), 0);
+  const totalUnrealizedPnL = portfolioValue - totalCostBasis;
+  const totalDayChange = held.reduce((sum, p) => {
+    const change = prices[p.ticker]?.change || 0;
+    return sum + Number(p.net_shares) * change;
+  }, 0);
+
+  const hasPrices = Object.keys(prices).length > 0;
+  const pnlPositive = totalUnrealizedPnL >= 0;
+  const dayPositive = totalDayChange >= 0;
+  const pnlColor = pnlPositive ? "#00c805" : "#ff5000";
+  const dayColor = dayPositive ? "#00c805" : "#ff5000";
 
   const totalInvested = positions.reduce((s, p) => s + Number(p.total_invested), 0);
   const totalReturned = positions.reduce((s, p) => s + Number(p.total_returned), 0);
-  const netPnL = totalReturned - totalInvested;
-  const held = positions.filter((p) => p.status === "held").sort((a, b) => {
-    const aVal = Number(a.net_shares) * Number(a.avg_cost_basis);
-    const bVal = Number(b.net_shares) * Number(b.avg_cost_basis);
-    return bVal - aVal;
-  });
+  const realizedPnL = totalReturned - totalInvested;
   const chartData = buildPnLChart(trades);
-  const pnlPositive = netPnL >= 0;
-  const pnlColor = pnlPositive ? "#00c805" : "#ff5000";
 
   return (
     <div className="max-w-5xl mx-auto px-4 py-6">
       {/* Big portfolio number */}
       <div className="text-center py-4">
-        <div className="text-4xl font-bold tracking-tight" style={{ color: '#fff' }}>
-          {fmtFull(held.reduce((s, p) => s + Number(p.net_shares) * Number(p.avg_cost_basis), 0))}
+        <div className="text-4xl font-bold tracking-tight" style={{ color: "#fff" }}>
+          {hasPrices ? fmtFull(portfolioValue) : pricesLoading ? "Loading..." : fmtFull(totalCostBasis)}
         </div>
-        <div className="text-sm mt-1" style={{ color: pnlColor }}>
-          {pnlPositive ? "▲" : "▼"} {fmtFull(Math.abs(netPnL))} ({((netPnL / totalInvested) * 100).toFixed(2)}%)
-        </div>
+        {hasPrices ? (
+          <div className="mt-1">
+            <span className="text-sm" style={{ color: dayColor }}>
+              {dayPositive ? "▲" : "▼"} {fmtFull(Math.abs(totalDayChange))} ({Math.abs((totalDayChange / (portfolioValue - totalDayChange)) * 100).toFixed(2)}%) Today
+            </span>
+          </div>
+        ) : pricesLoading ? (
+          <div className="text-sm mt-1" style={{ color: "#666" }}>Fetching live prices...</div>
+        ) : null}
       </div>
 
       {/* P&L Chart */}
@@ -125,9 +173,9 @@ export default function DashboardPage() {
       {/* Stat cards */}
       <div className="flex gap-3 mb-6">
         {[
-          { label: "Invested", value: fmt(totalInvested), color: "#fff" },
-          { label: "Returned", value: fmt(totalReturned), color: "#fff" },
-          { label: "Net P&L", value: (pnlPositive ? "+" : "") + fmt(netPnL), color: pnlColor },
+          { label: "Portfolio", value: hasPrices ? fmtFull(portfolioValue) : "—", color: "#fff" },
+          { label: "Day Change", value: hasPrices ? (dayPositive ? "+" : "") + fmtFull(totalDayChange) : "—", color: hasPrices ? dayColor : "#666" },
+          { label: "Unrealized", value: hasPrices ? (pnlPositive ? "+" : "") + fmt(totalUnrealizedPnL) : "—", color: hasPrices ? pnlColor : "#666" },
         ].map((s) => (
           <div key={s.label} className="flex-1 rounded-lg p-4 text-center" style={{ background: "#111" }}>
             <div className="text-[10px] uppercase tracking-widest" style={{ color: "#666" }}>{s.label}</div>
@@ -146,12 +194,17 @@ export default function DashboardPage() {
             <p className="py-8 text-center text-sm" style={{ color: "#666" }}>No open positions</p>
           ) : (
             held.map((p) => {
-              const value = Number(p.net_shares) * Number(p.avg_cost_basis);
-              // Simulated P&L for display (from position data)
-              const unrealizedPnL = Number(p.total_returned) > 0
-                ? Number(p.total_returned) - Number(p.total_invested)
-                : 0;
-              const isGain = unrealizedPnL >= 0;
+              const shares = Number(p.net_shares);
+              const avgCost = Number(p.avg_cost_basis);
+              const livePrice = prices[p.ticker]?.price;
+              const currentPrice = livePrice || avgCost;
+              const marketValue = shares * currentPrice;
+              const costValue = shares * avgCost;
+              const unrealized = marketValue - costValue;
+              const isGain = unrealized >= 0;
+              const dayChange = prices[p.ticker]?.change;
+              const dayPnL = dayChange ? shares * dayChange : null;
+
               return (
                 <div
                   key={p.ticker}
@@ -161,22 +214,29 @@ export default function DashboardPage() {
                   <div>
                     <div className="font-semibold text-[15px]" style={{ color: "#fff" }}>{p.ticker}</div>
                     <div className="text-xs" style={{ color: "#666" }}>
-                      {Number(p.net_shares).toFixed(2)} shares
+                      {shares.toFixed(2)} shares
+                      {livePrice && <span> · ${livePrice.toFixed(2)}</span>}
                     </div>
                   </div>
                   <div className="text-right">
                     <div className="text-sm font-medium" style={{ color: "#fff" }}>
-                      {fmtFull(value)}
+                      {fmtFull(marketValue)}
                     </div>
-                    <div
-                      className="text-xs font-medium mt-0.5 inline-block px-2 py-0.5 rounded"
-                      style={{
-                        color: isGain ? "#00c805" : "#ff5000",
-                        border: `1px solid ${isGain ? "#00c805" : "#ff5000"}`,
-                        borderRadius: 4,
-                      }}
-                    >
-                      {isGain ? "+" : ""}{fmt(unrealizedPnL)}
+                    <div className="flex items-center gap-2 justify-end mt-0.5">
+                      {dayPnL !== null && (
+                        <span className="text-[11px]" style={{ color: dayPnL >= 0 ? "#00c805" : "#ff5000" }}>
+                          {dayPnL >= 0 ? "+" : ""}{fmtFull(dayPnL)}
+                        </span>
+                      )}
+                      <span
+                        className="text-[11px] font-medium px-1.5 py-0.5 rounded"
+                        style={{
+                          color: isGain ? "#00c805" : "#ff5000",
+                          border: `1px solid ${isGain ? "#00c805" : "#ff5000"}`,
+                        }}
+                      >
+                        {isGain ? "+" : ""}{fmt(unrealized)}
+                      </span>
                     </div>
                   </div>
                 </div>
