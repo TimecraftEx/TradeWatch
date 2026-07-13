@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
-import type { Trade, Position } from "@/lib/types";
+import type { Trade, Position, LastTrade } from "@/lib/types";
 import {
   AreaChart,
   Area,
@@ -52,10 +52,15 @@ function fmtFull(n: number) {
   return n.toLocaleString("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
+function fmtDate(d: string) {
+  return new Date(d).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+}
+
 export default function DashboardPage() {
   const [trades, setTrades] = useState<Trade[]>([]);
   const [positions, setPositions] = useState<Position[]>([]);
   const [prices, setPrices] = useState<PriceData>({});
+  const [lastTrades, setLastTrades] = useState<Record<string, LastTrade>>({});
   const [loading, setLoading] = useState(true);
   const [pricesLoading, setPricesLoading] = useState(true);
 
@@ -68,13 +73,32 @@ export default function DashboardPage() {
       setTrades((t as Trade[]) || []);
       const pos = (p as Position[]) || [];
       setPositions(pos);
-      setLoading(false);
 
-      // Fetch live prices for held positions
+      // Get last buy/sell per held ticker
       const heldTickers = pos
         .filter((p) => p.status === "held" && Number(p.net_shares) > 0.01)
         .map((p) => p.ticker);
 
+      if (heldTickers.length > 0 && t) {
+        const lastTradeMap: Record<string, LastTrade> = {};
+        for (const ticker of heldTickers) {
+          const tickerTrades = (t as Trade[]).filter((tr) => tr.ticker === ticker);
+          const lastBuy = tickerTrades.find((tr) => tr.action === "buy");
+          const lastSell = tickerTrades.find((tr) => tr.action === "sell");
+          lastTradeMap[ticker] = {
+            ticker,
+            last_buy_price: lastBuy ? Number(lastBuy.price_per_share) : null,
+            last_buy_date: lastBuy ? lastBuy.executed_at : null,
+            last_sell_price: lastSell ? Number(lastSell.price_per_share) : null,
+            last_sell_date: lastSell ? lastSell.executed_at : null,
+          };
+        }
+        setLastTrades(lastTradeMap);
+      }
+
+      setLoading(false);
+
+      // Fetch live prices
       if (heldTickers.length > 0) {
         try {
           const res = await fetch(`/api/prices?tickers=${heldTickers.join(",")}`);
@@ -101,10 +125,8 @@ export default function DashboardPage() {
       return (Number(b.net_shares) * bPrice) - (Number(a.net_shares) * aPrice);
     });
 
-  // Calculate portfolio value using live prices
   const portfolioValue = held.reduce((sum, p) => {
-    const livePrice = prices[p.ticker]?.price;
-    const price = livePrice || Number(p.avg_cost_basis);
+    const price = prices[p.ticker]?.price || Number(p.avg_cost_basis);
     return sum + Number(p.net_shares) * price;
   }, 0);
 
@@ -123,7 +145,6 @@ export default function DashboardPage() {
 
   const totalInvested = positions.reduce((s, p) => s + Number(p.total_invested), 0);
   const totalReturned = positions.reduce((s, p) => s + Number(p.total_returned), 0);
-  const realizedPnL = totalReturned - totalInvested;
   const chartData = buildPnLChart(trades);
 
   return (
@@ -205,40 +226,82 @@ export default function DashboardPage() {
               const dayChange = prices[p.ticker]?.change;
               const dayPnL = dayChange ? shares * dayChange : null;
 
+              // Last trade data
+              const lt = lastTrades[p.ticker];
+              const lastBuyPrice = lt?.last_buy_price;
+              const lastSellPrice = lt?.last_sell_price;
+              const pctFromBuy = lastBuyPrice && livePrice
+                ? ((livePrice - lastBuyPrice) / lastBuyPrice) * 100
+                : null;
+
               return (
                 <div
                   key={p.ticker}
-                  className="flex items-center justify-between py-3"
+                  className="py-3"
                   style={{ borderBottom: "1px solid #111" }}
                 >
-                  <div>
-                    <div className="font-semibold text-[15px]" style={{ color: "#fff" }}>{p.ticker}</div>
-                    <div className="text-xs" style={{ color: "#666" }}>
-                      {shares.toFixed(2)} shares
-                      {livePrice && <span> · ${livePrice.toFixed(2)}</span>}
+                  {/* Main row */}
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <div className="font-semibold text-[15px]" style={{ color: "#fff" }}>{p.ticker}</div>
+                      <div className="text-xs" style={{ color: "#666" }}>
+                        {shares.toFixed(2)} shares
+                        {livePrice && <span> · ${livePrice.toFixed(2)}</span>}
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <div className="text-sm font-medium" style={{ color: "#fff" }}>
+                        {fmtFull(marketValue)}
+                      </div>
+                      <div className="flex items-center gap-2 justify-end mt-0.5">
+                        {dayPnL !== null && (
+                          <span className="text-[11px]" style={{ color: dayPnL >= 0 ? "#00c805" : "#ff5000" }}>
+                            {dayPnL >= 0 ? "+" : ""}{fmtFull(dayPnL)}
+                          </span>
+                        )}
+                        <span
+                          className="text-[11px] font-medium px-1.5 py-0.5 rounded"
+                          style={{
+                            color: isGain ? "#00c805" : "#ff5000",
+                            border: `1px solid ${isGain ? "#00c805" : "#ff5000"}`,
+                          }}
+                        >
+                          {isGain ? "+" : ""}{fmt(unrealized)}
+                        </span>
+                      </div>
                     </div>
                   </div>
-                  <div className="text-right">
-                    <div className="text-sm font-medium" style={{ color: "#fff" }}>
-                      {fmtFull(marketValue)}
-                    </div>
-                    <div className="flex items-center gap-2 justify-end mt-0.5">
-                      {dayPnL !== null && (
-                        <span className="text-[11px]" style={{ color: dayPnL >= 0 ? "#00c805" : "#ff5000" }}>
-                          {dayPnL >= 0 ? "+" : ""}{fmtFull(dayPnL)}
+
+                  {/* Last buy/sell row */}
+                  {lt && (
+                    <div className="flex items-center gap-4 mt-1.5">
+                      {lastBuyPrice !== null && (
+                        <span className="text-[11px]" style={{ color: "#666" }}>
+                          <span style={{ color: "#00c805" }}>B</span>{" "}
+                          ${lastBuyPrice.toFixed(2)}
+                          {lt.last_buy_date && <span> · {fmtDate(lt.last_buy_date)}</span>}
                         </span>
                       )}
-                      <span
-                        className="text-[11px] font-medium px-1.5 py-0.5 rounded"
-                        style={{
-                          color: isGain ? "#00c805" : "#ff5000",
-                          border: `1px solid ${isGain ? "#00c805" : "#ff5000"}`,
-                        }}
-                      >
-                        {isGain ? "+" : ""}{fmt(unrealized)}
-                      </span>
+                      {lastSellPrice !== null && (
+                        <span className="text-[11px]" style={{ color: "#666" }}>
+                          <span style={{ color: "#ff5000" }}>S</span>{" "}
+                          ${lastSellPrice.toFixed(2)}
+                          {lt.last_sell_date && <span> · {fmtDate(lt.last_sell_date)}</span>}
+                        </span>
+                      )}
+                      {pctFromBuy !== null && (
+                        <span
+                          className="text-[10px] font-medium px-1.5 py-0.5 rounded"
+                          style={{
+                            color: pctFromBuy >= 0 ? "#00c805" : "#ff5000",
+                            background: pctFromBuy >= 0 ? "rgba(0,200,5,0.1)" : "rgba(255,80,0,0.1)",
+                          }}
+                        >
+                          {pctFromBuy >= 0 ? "+" : ""}{pctFromBuy.toFixed(1)}% from buy
+                        </span>
+                      )}
                     </div>
-                  </div>
+                  )}
                 </div>
               );
             })

@@ -44,6 +44,22 @@ export interface PriceHistory {
   close: number;
 }
 
+export interface AlertSettings {
+  id: string;
+  threshold_pct: number;
+  direction: 'below_buy' | 'below_sell' | 'both';
+  enabled: boolean;
+  updated_at: string;
+}
+
+export interface LastTrade {
+  ticker: string;
+  last_buy_price: number | null;
+  last_buy_date: string | null;
+  last_sell_price: number | null;
+  last_sell_date: string | null;
+}
+
 export interface PortfolioSummary {
   totalInvested: number;
   totalReturned: number;
