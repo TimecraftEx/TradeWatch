@@ -10,6 +10,9 @@ interface PriceResult {
   price: number;
   change: number;
   changePercent: number;
+  analystRating: string | null;
+  priceTarget: number | null;
+  newsUrl: string | null;
 }
 
 async function scrapeTicker(symbol: string): Promise<PriceResult | null> {
@@ -49,6 +52,8 @@ async function scrapeTicker(symbol: string): Promise<PriceResult | null> {
     let price = 0;
     let change = 0;
     let changePercent = 0;
+    let analystRating: string | null = null;
+    let priceTarget: number | null = null;
 
     for (let i = priceIdx + 1; i < Math.min(priceIdx + 8, lines.length); i++) {
       const line = lines[i].trim();
@@ -69,8 +74,27 @@ async function scrapeTicker(symbol: string): Promise<PriceResult | null> {
       }
     }
 
+    // Parse analyst rating and price target from full content
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i].trim();
+
+      // Match "| Analysts | Strong Buy |" or similar table row
+      const analystMatch = line.match(/Analysts.*?\|\s*(Strong Buy|Buy|Hold|Sell|Strong Sell|Moderate Buy|Overweight|Underweight)/i);
+      if (analystMatch) {
+        analystRating = analystMatch[1];
+      }
+
+      // Match "| Price Target | 516.13"
+      const targetMatch = line.match(/Price Target.*?\|\s*([\d,]+\.?\d*)/);
+      if (targetMatch) {
+        priceTarget = parseFloat(targetMatch[1].replace(/,/g, ""));
+      }
+    }
+
+    const newsUrl = `https://stockanalysis.com/stocks/${symbol.toLowerCase()}/`;
+
     if (price > 0) {
-      return { price, change, changePercent };
+      return { price, change, changePercent, analystRating, priceTarget, newsUrl };
     }
 
     return null;

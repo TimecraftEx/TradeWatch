@@ -12,7 +12,9 @@ import {
   ResponsiveContainer,
 } from "recharts";
 
-type PriceData = Record<string, { price: number; change: number; changePercent: number }>;
+type PriceData = Record<string, { price: number; change: number; changePercent: number; analystRating?: string | null; priceTarget?: number | null; newsUrl?: string | null }>;
+type TabView = "holdings" | "previously" | "recent";
+type SortMode = "value" | "gainer" | "loser";
 
 function buildPnLChart(trades: Trade[]) {
   const sorted = [...trades].sort(
@@ -53,7 +55,18 @@ function fmtDate(d: string) {
   return new Date(d).toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }
 
-// Shared stock row component
+const RATING_COLORS: Record<string, string> = {
+  "Strong Buy": "#00c805",
+  "Buy": "#00c805",
+  "Moderate Buy": "#7dd87d",
+  "Overweight": "#7dd87d",
+  "Hold": "#f59e0b",
+  "Sell": "#ff5000",
+  "Strong Sell": "#ff5000",
+  "Underweight": "#ff5000",
+};
+
+// Shared stock row component — thick card block style
 function StockRow({ p, prices, lastTrades, isClosed }: {
   p: Position;
   prices: PriceData;
@@ -64,6 +77,7 @@ function StockRow({ p, prices, lastTrades, isClosed }: {
   const avgCost = Number(p.avg_cost_basis);
   const livePrice = prices[p.ticker]?.price;
   const currentPrice = livePrice || avgCost;
+  const priceData = prices[p.ticker];
 
   const lt = lastTrades[p.ticker];
   const lastBuyPrice = lt?.last_buy_price;
@@ -75,32 +89,92 @@ function StockRow({ p, prices, lastTrades, isClosed }: {
     ? ((livePrice - lastSellPrice) / lastSellPrice) * 100
     : null;
 
-  if (isClosed) {
-    // Closed position: show ticker, last sell price/date, current price, % change from sell
-    return (
-      <div
-        className="py-3 px-3 rounded-lg mb-1"
-        style={{ background: "#0d1117", borderLeft: "2px solid #1e2a3a" }}
-      >
-        <div className="flex items-center justify-between">
-          <div>
-            <div className="font-semibold text-[15px]" style={{ color: "#8b949e" }}>{p.ticker}</div>
-            <div className="text-xs" style={{ color: "#484f58" }}>
-              Closed · Avg cost ${avgCost.toFixed(2)}
-            </div>
-          </div>
-          <div className="text-right">
-            {livePrice && (
-              <div className="text-sm font-medium" style={{ color: "#8b949e" }}>
-                ${livePrice.toFixed(2)}
-              </div>
-            )}
-            {pctFromSell !== null && (
+  const cardBg = isClosed ? "#0a0e14" : "#111";
+  const borderColor = isClosed ? "#1e2a3a" : "#222";
+  const textColor = isClosed ? "#8b949e" : "#fff";
+  const subColor = isClosed ? "#484f58" : "#888";
+  const greenColor = "#00c805";
+  const redColor = "#ff5000";
+
+  const marketValue = isClosed ? 0 : shares * currentPrice;
+  const costValue = isClosed ? 0 : shares * avgCost;
+  const unrealized = marketValue - costValue;
+  const isGain = unrealized >= 0;
+  const dayChange = prices[p.ticker]?.change;
+  const dayPnL = !isClosed && dayChange ? shares * dayChange : null;
+
+  return (
+    <div
+      className="rounded-xl p-4 mb-2"
+      style={{ background: cardBg, border: `1px solid ${borderColor}` }}
+    >
+      {/* Top row: ticker + badges + value */}
+      <div className="flex items-start justify-between mb-2">
+        <div>
+          <div className="flex items-center gap-2 mb-1">
+            <span className="font-bold text-lg" style={{ color: textColor }}>{p.ticker}</span>
+            {priceData?.analystRating && (
               <span
-                className="text-[11px] font-medium px-1.5 py-0.5 rounded"
+                className="text-[10px] font-bold uppercase px-2 py-1 rounded-full"
                 style={{
-                  color: pctFromSell >= 0 ? "#00c805" : "#ff5000",
-                  background: pctFromSell >= 0 ? "rgba(0,200,5,0.08)" : "rgba(255,80,0,0.08)",
+                  color: RATING_COLORS[priceData.analystRating] || "#f59e0b",
+                  background: `${RATING_COLORS[priceData.analystRating] || "#f59e0b"}15`,
+                  border: `1px solid ${RATING_COLORS[priceData.analystRating] || "#f59e0b"}40`,
+                }}
+              >
+                {priceData.analystRating}
+              </span>
+            )}
+            {priceData?.newsUrl && (
+              <a
+                href={priceData.newsUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-[10px] font-bold uppercase px-2 py-1 rounded-full"
+                style={{ color: "#58a6ff", background: "#58a6ff15", border: "1px solid #58a6ff40" }}
+              >
+                News
+              </a>
+            )}
+          </div>
+          <div className="text-xs" style={{ color: subColor }}>
+            {isClosed ? `Closed · Avg $${avgCost.toFixed(2)}` : `${shares.toFixed(2)} shares`}
+            {livePrice && <span> · <strong style={{ color: textColor }}>${livePrice.toFixed(2)}</strong></span>}
+            {priceData?.priceTarget && (
+              <span> · Target <strong style={{ color: "#f59e0b" }}>${priceData.priceTarget.toFixed(0)}</strong></span>
+            )}
+          </div>
+        </div>
+        <div className="text-right">
+          {!isClosed && (
+            <div className="text-base font-bold" style={{ color: textColor }}>
+              {fmtFull(marketValue)}
+            </div>
+          )}
+          <div className="flex items-center gap-2 justify-end mt-1">
+            {dayPnL !== null && (
+              <span className="text-xs font-semibold" style={{ color: dayPnL >= 0 ? greenColor : redColor }}>
+                {dayPnL >= 0 ? "+" : ""}{fmtFull(dayPnL)}
+              </span>
+            )}
+            {!isClosed && (
+              <span
+                className="text-xs font-bold px-2 py-1 rounded-full"
+                style={{
+                  color: isGain ? greenColor : redColor,
+                  background: isGain ? "rgba(0,200,5,0.12)" : "rgba(255,80,0,0.12)",
+                  border: `1px solid ${isGain ? greenColor : redColor}50`,
+                }}
+              >
+                {isGain ? "+" : ""}{fmt(unrealized)}
+              </span>
+            )}
+            {isClosed && pctFromSell !== null && (
+              <span
+                className="text-xs font-bold px-2 py-1 rounded-full"
+                style={{
+                  color: pctFromSell >= 0 ? greenColor : redColor,
+                  background: pctFromSell >= 0 ? "rgba(0,200,5,0.12)" : "rgba(255,80,0,0.12)",
                 }}
               >
                 {pctFromSell >= 0 ? "+" : ""}{pctFromSell.toFixed(1)}% since sell
@@ -108,90 +182,37 @@ function StockRow({ p, prices, lastTrades, isClosed }: {
             )}
           </div>
         </div>
-        {lt && (
-          <div className="flex items-center gap-4 mt-1.5">
-            {lastBuyPrice !== null && (
-              <span className="text-[11px]" style={{ color: "#484f58" }}>
-                <span style={{ color: "#238636" }}>B</span>{" "}
-                ${lastBuyPrice.toFixed(2)}
-                {lt.last_buy_date && <span> · {fmtDate(lt.last_buy_date)}</span>}
-              </span>
-            )}
-            {lastSellPrice !== null && (
-              <span className="text-[11px]" style={{ color: "#484f58" }}>
-                <span style={{ color: "#da3633" }}>S</span>{" "}
-                ${lastSellPrice.toFixed(2)}
-                {lt.last_sell_date && <span> · {fmtDate(lt.last_sell_date)}</span>}
-              </span>
-            )}
-          </div>
-        )}
       </div>
-    );
-  }
 
-  // Held position
-  const marketValue = shares * currentPrice;
-  const costValue = shares * avgCost;
-  const unrealized = marketValue - costValue;
-  const isGain = unrealized >= 0;
-  const dayChange = prices[p.ticker]?.change;
-  const dayPnL = dayChange ? shares * dayChange : null;
-
-  return (
-    <div className="py-3" style={{ borderBottom: "1px solid #111" }}>
-      <div className="flex items-center justify-between">
-        <div>
-          <div className="font-semibold text-[15px]" style={{ color: "#fff" }}>{p.ticker}</div>
-          <div className="text-xs" style={{ color: "#666" }}>
-            {shares.toFixed(2)} shares
-            {livePrice && <span> · ${livePrice.toFixed(2)}</span>}
-          </div>
-        </div>
-        <div className="text-right">
-          <div className="text-sm font-medium" style={{ color: "#fff" }}>
-            {fmtFull(marketValue)}
-          </div>
-          <div className="flex items-center gap-2 justify-end mt-0.5">
-            {dayPnL !== null && (
-              <span className="text-[11px]" style={{ color: dayPnL >= 0 ? "#00c805" : "#ff5000" }}>
-                {dayPnL >= 0 ? "+" : ""}{fmtFull(dayPnL)}
-              </span>
-            )}
-            <span
-              className="text-[11px] font-medium px-1.5 py-0.5 rounded"
-              style={{
-                color: isGain ? "#00c805" : "#ff5000",
-                border: `1px solid ${isGain ? "#00c805" : "#ff5000"}`,
-              }}
-            >
-              {isGain ? "+" : ""}{fmt(unrealized)}
-            </span>
-          </div>
-        </div>
-      </div>
+      {/* Buy/Sell price buttons — bold pill style */}
       {lt && (
-        <div className="flex items-center gap-4 mt-1.5">
+        <div className="flex items-center gap-2 mt-2">
           {lastBuyPrice !== null && (
-            <span className="text-[11px]" style={{ color: "#666" }}>
-              <span style={{ color: "#00c805" }}>B</span>{" "}
-              ${lastBuyPrice.toFixed(2)}
-              {lt.last_buy_date && <span> · {fmtDate(lt.last_buy_date)}</span>}
-            </span>
+            <div
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold"
+              style={{ background: "rgba(0,200,5,0.12)", border: "1px solid rgba(0,200,5,0.3)" }}
+            >
+              <span style={{ color: greenColor }}>BUY</span>
+              <span style={{ color: "#fff" }}>${lastBuyPrice.toFixed(2)}</span>
+              {lt.last_buy_date && <span style={{ color: subColor }}>· {fmtDate(lt.last_buy_date)}</span>}
+            </div>
           )}
           {lastSellPrice !== null && (
-            <span className="text-[11px]" style={{ color: "#666" }}>
-              <span style={{ color: "#ff5000" }}>S</span>{" "}
-              ${lastSellPrice.toFixed(2)}
-              {lt.last_sell_date && <span> · {fmtDate(lt.last_sell_date)}</span>}
-            </span>
+            <div
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold"
+              style={{ background: "rgba(255,80,0,0.12)", border: "1px solid rgba(255,80,0,0.3)" }}
+            >
+              <span style={{ color: redColor }}>SELL</span>
+              <span style={{ color: "#fff" }}>${lastSellPrice.toFixed(2)}</span>
+              {lt.last_sell_date && <span style={{ color: subColor }}>· {fmtDate(lt.last_sell_date)}</span>}
+            </div>
           )}
-          {pctFromBuy !== null && (
+          {!isClosed && pctFromBuy !== null && (
             <span
-              className="text-[10px] font-medium px-1.5 py-0.5 rounded"
+              className="text-[11px] font-bold px-2 py-1 rounded-full"
               style={{
-                color: pctFromBuy >= 0 ? "#00c805" : "#ff5000",
-                background: pctFromBuy >= 0 ? "rgba(0,200,5,0.1)" : "rgba(255,80,0,0.1)",
+                color: pctFromBuy >= 0 ? greenColor : redColor,
+                background: pctFromBuy >= 0 ? "rgba(0,200,5,0.08)" : "rgba(255,80,0,0.08)",
               }}
             >
               {pctFromBuy >= 0 ? "+" : ""}{pctFromBuy.toFixed(1)}% from buy
@@ -210,7 +231,8 @@ export default function DashboardPage() {
   const [lastTrades, setLastTrades] = useState<Record<string, LastTrade>>({});
   const [loading, setLoading] = useState(true);
   const [pricesLoading, setPricesLoading] = useState(true);
-  const [showClosed, setShowClosed] = useState(false);
+  const [activeTab, setActiveTab] = useState<TabView>("holdings");
+  const [sortMode, setSortMode] = useState<SortMode>("value");
 
   useEffect(() => {
     async function load() {
@@ -222,7 +244,7 @@ export default function DashboardPage() {
       const pos = (p as Position[]) || [];
       setPositions(pos);
 
-      // Get last buy/sell per ALL tickers (held + closed)
+      // Get last buy/sell per ALL tickers
       const allTickers = pos.map((p) => p.ticker);
       if (allTickers.length > 0 && t) {
         const lastTradeMap: Record<string, LastTrade> = {};
@@ -243,7 +265,7 @@ export default function DashboardPage() {
 
       setLoading(false);
 
-      // Fetch live prices for held tickers first
+      // Fetch live prices for held tickers
       const heldTickers = pos
         .filter((p) => p.status === "held" && Number(p.net_shares) > 0.01)
         .map((p) => p.ticker);
@@ -260,40 +282,61 @@ export default function DashboardPage() {
     load();
   }, []);
 
-  // Fetch closed position prices when section is opened
+  // Fetch closed position prices when tab is selected
   useEffect(() => {
-    if (!showClosed) return;
+    if (activeTab !== "previously") return;
     const closedTickers = positions
       .filter((p) => p.status === "closed" && !prices[p.ticker])
       .map((p) => p.ticker)
       .filter((t) => t && t.length <= 5 && /^[A-Z]+$/.test(t));
-
     if (closedTickers.length === 0) return;
-
-    // Fetch in batches of 10 to avoid overloading
     const batch = closedTickers.slice(0, 10);
     fetch(`/api/prices?tickers=${batch.join(",")}`)
       .then((r) => r.json())
       .then((data) => setPrices((prev) => ({ ...prev, ...data })))
       .catch(() => {});
-  }, [showClosed, positions, prices]);
+  }, [activeTab, positions, prices]);
 
   if (loading) {
     return <div className="flex items-center justify-center h-96" style={{ color: "#666" }}>Loading...</div>;
   }
 
+  // Sort helper for held positions
   const held = positions
     .filter((p) => p.status === "held" && Number(p.net_shares) > 0.01)
     .sort((a, b) => {
       const aPrice = prices[a.ticker]?.price || Number(a.avg_cost_basis);
       const bPrice = prices[b.ticker]?.price || Number(b.avg_cost_basis);
-      return (Number(b.net_shares) * bPrice) - (Number(a.net_shares) * aPrice);
+      const aShares = Number(a.net_shares);
+      const bShares = Number(b.net_shares);
+
+      if (sortMode === "gainer") {
+        const aPct = prices[a.ticker]?.changePercent || 0;
+        const bPct = prices[b.ticker]?.changePercent || 0;
+        return bPct - aPct; // biggest gainer first
+      }
+      if (sortMode === "loser") {
+        const aPct = prices[a.ticker]?.changePercent || 0;
+        const bPct = prices[b.ticker]?.changePercent || 0;
+        return aPct - bPct; // biggest loser first
+      }
+      return (bShares * bPrice) - (aShares * aPrice); // by value
     });
 
   const closed = positions
     .filter((p) => p.status === "closed" && Number(p.total_invested) > 0)
     .sort((a, b) => {
-      // Sort by last sell date (most recent first)
+      if (sortMode === "gainer") {
+        const aPct = prices[a.ticker]?.changePercent || 0;
+        const bPct = prices[b.ticker]?.changePercent || 0;
+        return bPct - aPct;
+      }
+      if (sortMode === "loser") {
+        const aPct = prices[a.ticker]?.changePercent || 0;
+        const bPct = prices[b.ticker]?.changePercent || 0;
+        return aPct - bPct;
+      }
+      // Default: most recent sell first
       const aDate = lastTrades[a.ticker]?.last_sell_date || "1970";
       const bDate = lastTrades[b.ticker]?.last_sell_date || "1970";
       return new Date(bDate).getTime() - new Date(aDate).getTime();
@@ -376,11 +419,60 @@ export default function DashboardPage() {
         ))}
       </div>
 
-      {/* Current Holdings */}
-      <div>
-        <div className="text-xs uppercase tracking-widest mb-3" style={{ color: "#666" }}>
-          Holdings ({held.length})
+      {/* Tabs: Holdings | Previously Owned | Recent Trades */}
+      <div className="flex items-center gap-1 mb-4 p-1 rounded-lg" style={{ background: "#111" }}>
+        {([
+          { key: "holdings" as TabView, label: `Holdings (${held.length})` },
+          { key: "previously" as TabView, label: `Previously Owned (${closed.length})` },
+          { key: "recent" as TabView, label: "Recent Trades" },
+        ]).map((tab) => (
+          <button
+            key={tab.key}
+            onClick={() => setActiveTab(tab.key)}
+            className="flex-1 py-2 text-xs font-medium rounded-md transition-colors"
+            style={{
+              background: activeTab === tab.key ? "#000" : "transparent",
+              color: activeTab === tab.key ? "#fff" : "#666",
+              border: activeTab === tab.key ? "1px solid #333" : "1px solid transparent",
+            }}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Sort controls (for holdings and previously owned) */}
+      {activeTab !== "recent" && (
+        <div className="flex items-center gap-2 mb-4 p-1 rounded-lg" style={{ background: "#0a0a0a" }}>
+          {([
+            { key: "value" as SortMode, label: "By Value", icon: "$ " },
+            { key: "gainer" as SortMode, label: "Top Gainers", icon: "▲ " },
+            { key: "loser" as SortMode, label: "Top Losers", icon: "▼ " },
+          ]).map((s) => (
+            <button
+              key={s.key}
+              onClick={() => setSortMode(s.key)}
+              className="flex-1 text-xs font-semibold py-2 rounded-md transition-all"
+              style={{
+                background: sortMode === s.key
+                  ? s.key === "gainer" ? "rgba(0,200,5,0.15)" : s.key === "loser" ? "rgba(255,80,0,0.15)" : "#1a1a1a"
+                  : "transparent",
+                color: sortMode === s.key
+                  ? s.key === "gainer" ? "#00c805" : s.key === "loser" ? "#ff5000" : "#fff"
+                  : "#555",
+                border: sortMode === s.key
+                  ? s.key === "gainer" ? "1px solid rgba(0,200,5,0.3)" : s.key === "loser" ? "1px solid rgba(255,80,0,0.3)" : "1px solid #333"
+                  : "1px solid transparent",
+              }}
+            >
+              {s.icon}{s.label}
+            </button>
+          ))}
         </div>
+      )}
+
+      {/* Tab content */}
+      {activeTab === "holdings" && (
         <div style={{ borderTop: "1px solid #1a1a1a" }}>
           {held.length === 0 ? (
             <p className="py-8 text-center text-sm" style={{ color: "#666" }}>No open positions</p>
@@ -390,36 +482,23 @@ export default function DashboardPage() {
             ))
           )}
         </div>
-      </div>
+      )}
 
-      {/* Previously Owned */}
-      <div className="mt-8">
-        <button
-          onClick={() => setShowClosed(!showClosed)}
-          className="flex items-center gap-2 text-xs uppercase tracking-widest mb-3"
-          style={{ color: "#666" }}
-        >
-          <span style={{ color: showClosed ? "#00c805" : "#444", transition: "transform 0.2s", display: "inline-block", transform: showClosed ? "rotate(90deg)" : "rotate(0deg)" }}>
-            ▶
-          </span>
-          Previously Owned ({closed.length})
-        </button>
-        {showClosed && (
-          <div className="space-y-1">
-            {closed.map((p) => (
+      {activeTab === "previously" && (
+        <div className="space-y-1">
+          {closed.length === 0 ? (
+            <p className="py-8 text-center text-sm" style={{ color: "#666" }}>No previously owned stocks</p>
+          ) : (
+            closed.map((p) => (
               <StockRow key={p.ticker} p={p} prices={prices} lastTrades={lastTrades} isClosed={true} />
-            ))}
-          </div>
-        )}
-      </div>
-
-      {/* Recent trades */}
-      <div className="mt-8">
-        <div className="text-xs uppercase tracking-widest mb-3" style={{ color: "#666" }}>
-          Recent Trades
+            ))
+          )}
         </div>
+      )}
+
+      {activeTab === "recent" && (
         <div style={{ borderTop: "1px solid #1a1a1a" }}>
-          {trades.slice(0, 8).map((t) => {
+          {trades.slice(0, 15).map((t) => {
             const livePrice = prices[t.ticker]?.price;
             const lastSell = trades.find((tr) => tr.ticker === t.ticker && tr.action === "sell");
             return (
@@ -468,7 +547,7 @@ export default function DashboardPage() {
             );
           })}
         </div>
-      </div>
+      )}
     </div>
   );
 }
