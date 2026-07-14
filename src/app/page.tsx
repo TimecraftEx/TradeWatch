@@ -143,11 +143,15 @@ function StockRow({ p, prices, lastTrades, isClosed, overrides }: {
           </div>
           <div className="text-[11px] sm:text-xs" style={{ color: subColor }}>
             {isClosed ? "Closed" : `${shares.toFixed(2)} shares`}
-            {livePrice && <span> · <strong style={{ color: textColor }}>${livePrice.toFixed(2)}</strong></span>}
             {priceData?.priceTarget && (
               <span> · Target <strong style={{ color: "#f59e0b" }}>${priceData.priceTarget.toFixed(0)}</strong></span>
             )}
           </div>
+          {livePrice && (
+            <div className="text-sm sm:text-base font-bold mt-0.5" style={{ color: "#00c805" }}>
+              Now ${livePrice.toFixed(2)}
+            </div>
+          )}
         </div>
         <div className="text-right shrink-0 ml-2">
           {!isClosed && (
