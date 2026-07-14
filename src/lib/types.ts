@@ -60,6 +60,11 @@ export interface LastTrade {
   last_sell_date: string | null;
 }
 
+export interface PositionOverride {
+  ticker: string;
+  avg_cost: number;
+}
+
 export interface PortfolioSummary {
   totalInvested: number;
   totalReturned: number;

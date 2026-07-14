@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
-import type { Trade, Position, LastTrade } from "@/lib/types";
+import type { Trade, Position, LastTrade, PositionOverride } from "@/lib/types";
 import {
   AreaChart,
   Area,
@@ -67,14 +67,15 @@ const RATING_COLORS: Record<string, string> = {
 };
 
 // Shared stock row component — thick card block style
-function StockRow({ p, prices, lastTrades, isClosed }: {
+function StockRow({ p, prices, lastTrades, isClosed, overrides }: {
   p: Position;
   prices: PriceData;
   lastTrades: Record<string, LastTrade>;
   isClosed: boolean;
+  overrides: Record<string, number>;
 }) {
   const shares = Number(p.net_shares);
-  const avgCost = Number(p.avg_cost_basis);
+  const avgCost = overrides[p.ticker] || Number(p.avg_cost_basis);
   const livePrice = prices[p.ticker]?.price;
   const currentPrice = livePrice || avgCost;
   const priceData = prices[p.ticker];
@@ -113,6 +114,9 @@ function StockRow({ p, prices, lastTrades, isClosed }: {
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5 sm:gap-2 mb-1 flex-wrap">
             <span className="font-bold text-base sm:text-lg" style={{ color: textColor }}>{p.ticker}</span>
+            <span className="text-[10px] sm:text-xs font-semibold px-1.5 py-0.5 rounded" style={{ color: "#f59e0b", background: "rgba(245,158,11,0.1)" }}>
+              Avg ${avgCost.toFixed(2)}
+            </span>
             {priceData?.analystRating && (
               <span
                 className="text-[8px] sm:text-[10px] font-bold uppercase px-1.5 sm:px-2 py-0.5 sm:py-1 rounded-full"
@@ -138,7 +142,7 @@ function StockRow({ p, prices, lastTrades, isClosed }: {
             )}
           </div>
           <div className="text-[11px] sm:text-xs" style={{ color: subColor }}>
-            {isClosed ? `Closed · Avg $${avgCost.toFixed(2)}` : `${shares.toFixed(2)} shares`}
+            {isClosed ? "Closed" : `${shares.toFixed(2)} shares`}
             {livePrice && <span> · <strong style={{ color: textColor }}>${livePrice.toFixed(2)}</strong></span>}
             {priceData?.priceTarget && (
               <span> · Target <strong style={{ color: "#f59e0b" }}>${priceData.priceTarget.toFixed(0)}</strong></span>
@@ -229,6 +233,7 @@ export default function DashboardPage() {
   const [positions, setPositions] = useState<Position[]>([]);
   const [prices, setPrices] = useState<PriceData>({});
   const [lastTrades, setLastTrades] = useState<Record<string, LastTrade>>({});
+  const [overrides, setOverrides] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(true);
   const [pricesLoading, setPricesLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<TabView>("holdings");
@@ -236,10 +241,20 @@ export default function DashboardPage() {
 
   useEffect(() => {
     async function load() {
-      const [{ data: t }, { data: p }] = await Promise.all([
+      const [{ data: t }, { data: p }, { data: ov }] = await Promise.all([
         supabase.from("trades").select("*").order("executed_at", { ascending: false }),
         supabase.from("positions").select("*"),
+        supabase.from("position_overrides").select("*"),
       ]);
+
+      // Build overrides map
+      const ovMap: Record<string, number> = {};
+      if (ov) {
+        for (const o of ov as PositionOverride[]) {
+          ovMap[o.ticker] = Number(o.avg_cost);
+        }
+      }
+      setOverrides(ovMap);
       setTrades((t as Trade[]) || []);
       const pos = (p as Position[]) || [];
       setPositions(pos);
@@ -347,7 +362,7 @@ export default function DashboardPage() {
     return sum + Number(p.net_shares) * price;
   }, 0);
 
-  const totalCostBasis = held.reduce((sum, p) => sum + Number(p.net_shares) * Number(p.avg_cost_basis), 0);
+  const totalCostBasis = held.reduce((sum, p) => sum + Number(p.net_shares) * (overrides[p.ticker] || Number(p.avg_cost_basis)), 0);
   const totalUnrealizedPnL = portfolioValue - totalCostBasis;
   const totalDayChange = held.reduce((sum, p) => {
     const change = prices[p.ticker]?.change || 0;
@@ -479,7 +494,7 @@ export default function DashboardPage() {
             <p className="py-8 text-center text-sm" style={{ color: "#666" }}>No open positions</p>
           ) : (
             held.map((p) => (
-              <StockRow key={p.ticker} p={p} prices={prices} lastTrades={lastTrades} isClosed={false} />
+              <StockRow key={p.ticker} p={p} prices={prices} lastTrades={lastTrades} isClosed={false} overrides={overrides} />
             ))
           )}
         </div>
@@ -491,7 +506,7 @@ export default function DashboardPage() {
             <p className="py-8 text-center text-sm" style={{ color: "#666" }}>No previously owned stocks</p>
           ) : (
             closed.map((p) => (
-              <StockRow key={p.ticker} p={p} prices={prices} lastTrades={lastTrades} isClosed={true} />
+              <StockRow key={p.ticker} p={p} prices={prices} lastTrades={lastTrades} isClosed={true} overrides={overrides} />
             ))
           )}
         </div>
